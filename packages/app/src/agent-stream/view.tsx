@@ -17,6 +17,7 @@ import {
   Text,
   Pressable,
   Platform,
+  useWindowDimensions,
   type PressableStateCallbackType,
   type StyleProp,
   type ViewStyle,
@@ -302,6 +303,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
   ) {
     const { t } = useTranslation();
     const autoExpandReasoning = useSettings((settings) => settings.autoExpandReasoning);
+    const { height: windowHeight } = useWindowDimensions();
+    const thoughtMaxDetailHeight = Math.max(320, Math.round(windowHeight * 0.6));
     const toolCallDetailLevel = useSettings((settings) => settings.toolCallDetailLevel);
     const chatOutlineEnabled = useSettings((settings) => settings.chatOutlineEnabled);
     const viewportRef = useRef<StreamViewportHandle | null>(null);
@@ -673,10 +676,15 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             isLastInSequence={layoutItem.isLastInToolSequence}
             defaultExpanded={autoExpandReasoning}
             forceInline={autoExpandReasoning}
+            autoCollapseOnComplete
+            autoScrollToBottom
+            shimmerSecondaryOnly
+            secondaryLabelTicker
+            maxDetailHeight={thoughtMaxDetailHeight}
           />
         );
       },
-      [autoExpandReasoning, setInlineDetailsExpanded],
+      [autoExpandReasoning, setInlineDetailsExpanded, thoughtMaxDetailHeight],
     );
 
     const renderSingleToolCallItem = useCallback(

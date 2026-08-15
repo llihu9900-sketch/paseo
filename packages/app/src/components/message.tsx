@@ -5,6 +5,7 @@ import {
   Text,
   Image,
   Pressable,
+  ScrollView,
   type GestureResponderEvent,
   type LayoutChangeEvent,
   StyleProp,
@@ -157,6 +158,7 @@ function useDisableOuterSpacing(disableOuterSpacing: boolean | undefined) {
 
 const WEB_TOOLCALL_SHIMMER_KEYFRAME_ID = "paseo-toolcall-shimmer-keyframes";
 const WEB_TOOLCALL_SHIMMER_ANIMATION_NAME = "paseo-toolcall-shimmer";
+const TICKER_SWEEP_ANIMATION_NAME = "paseo-ticker-sweep";
 const MARKDOWN_ALLOWED_IMAGE_HANDLERS = [
   "data:image/png;base64",
   "data:image/gif;base64",
@@ -187,6 +189,14 @@ const WEB_TOOLCALL_SHIMMER_KEYFRAME_CSS = `
     }
     100% {
       background-position: var(--paseo-shimmer-end, 200px) 0;
+    }
+  }
+  @keyframes ${TICKER_SWEEP_ANIMATION_NAME} {
+    0% {
+      background-position: -120% 0;
+    }
+    100% {
+      background-position: 220% 0;
     }
   }
 `;
@@ -1142,6 +1152,11 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   },
   secondaryLabelActive: {
     color: theme.colors.foreground,
+  },
+  secondaryLabelText: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.base,
+    fontWeight: theme.fontWeight.normal,
   },
   shimmerText: {
     color: "transparent",
@@ -2358,24 +2373,55 @@ interface ExpandableBadgeProps {
   isLastInSequence?: boolean;
   disableOuterSpacing?: boolean;
   borderlessWhenExpanded?: boolean;
+  shimmerSecondaryOnly?: boolean;
+  secondaryLabelTicker?: boolean;
   testID?: string;
 }
 
 interface ExpandableBadgeSecondaryLabelProps {
   secondaryLabel?: string;
   secondaryLabelStyle: StyleProp<TextStyle>;
+  secondaryLabelTextStyle: StyleProp<TextStyle>;
+  useShimmerText: boolean;
   shouldMeasureWebShimmer: boolean;
   onSecondaryLayout: (event: LayoutChangeEvent) => void;
+  ticker: boolean;
 }
 
 function ExpandableBadgeSecondaryLabel({
   secondaryLabel,
   secondaryLabelStyle,
+  secondaryLabelTextStyle,
+  useShimmerText,
   shouldMeasureWebShimmer,
   onSecondaryLayout,
+  ticker,
 }: ExpandableBadgeSecondaryLabelProps) {
+  const scrollRef = useRef<ScrollView | null>(null);
+  const tickerSweepTextStyle = buildTickerSweepTextStyle(useShimmerText);
+
   if (!secondaryLabel) {
     return null;
+  }
+  if (ticker) {
+    return (
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator={false}
+        style={secondaryLabelStyle}
+        onLayout={shouldMeasureWebShimmer ? onSecondaryLayout : undefined}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd?.({ animated: false })}
+      >
+        <Text
+          style={tickerSweepTextStyle ?? secondaryLabelTextStyle}
+          numberOfLines={1}
+        >
+          {secondaryLabel}
+        </Text>
+      </ScrollView>
+    );
   }
   return (
     <Text
@@ -2394,6 +2440,7 @@ interface ExpandableBadgeWebShimmerOverlayProps {
   shimmerLabelTextStyle: StyleProp<TextStyle>;
   shimmerSecondaryTextStyle: StyleProp<TextStyle>;
   showOpenFileButton: boolean;
+  hideSecondary?: boolean;
 }
 
 function ExpandableBadgeWebShimmerOverlay({
@@ -2402,13 +2449,14 @@ function ExpandableBadgeWebShimmerOverlay({
   shimmerLabelTextStyle,
   shimmerSecondaryTextStyle,
   showOpenFileButton,
+  hideSecondary = false,
 }: ExpandableBadgeWebShimmerOverlayProps) {
   return (
     <View style={expandableBadgeStylesheet.shimmerOverlay} pointerEvents="none">
       <Text style={shimmerLabelTextStyle} numberOfLines={1}>
         {label}
       </Text>
-      {secondaryLabel ? (
+      {secondaryLabel && !hideSecondary ? (
         <Text style={shimmerSecondaryTextStyle} numberOfLines={1}>
           {secondaryLabel}
         </Text>
@@ -2430,8 +2478,10 @@ interface ExpandableBadgeLabelRowProps {
   labelStyle: StyleProp<TextStyle>;
   secondaryLabel?: string;
   secondaryLabelStyle: StyleProp<TextStyle>;
+  secondaryLabelTextStyle: StyleProp<TextStyle>;
   shouldMeasureWebShimmer: boolean;
   shouldMeasureNativeShimmer: boolean;
+  secondaryLabelTicker: boolean;
   isWebShimmer: boolean;
   isNativeShimmer: boolean;
   shimmerLabelTextStyle: StyleProp<TextStyle>;
@@ -2456,8 +2506,10 @@ function ExpandableBadgeLabelRow({
   labelStyle,
   secondaryLabel,
   secondaryLabelStyle,
+  secondaryLabelTextStyle,
   shouldMeasureWebShimmer,
   shouldMeasureNativeShimmer,
+  secondaryLabelTicker,
   isWebShimmer,
   isNativeShimmer,
   shimmerLabelTextStyle,
@@ -2492,8 +2544,11 @@ function ExpandableBadgeLabelRow({
       <ExpandableBadgeSecondaryLabel
         secondaryLabel={secondaryLabel}
         secondaryLabelStyle={secondaryLabelStyle}
+        secondaryLabelTextStyle={secondaryLabelTextStyle}
+        useShimmerText={isWebShimmer}
         shouldMeasureWebShimmer={shouldMeasureWebShimmer}
         onSecondaryLayout={onSecondaryLayout}
+        ticker={secondaryLabelTicker}
       />
       {showOpenFileButton ? (
         <Pressable
@@ -2519,9 +2574,10 @@ function ExpandableBadgeLabelRow({
           shimmerLabelTextStyle={shimmerLabelTextStyle}
           shimmerSecondaryTextStyle={shimmerSecondaryTextStyle}
           showOpenFileButton={showOpenFileButton}
+          hideSecondary={secondaryLabelTicker}
         />
       ) : null}
-      {isNativeShimmer ? (
+      {isNativeShimmer && !secondaryLabelTicker ? (
         <NativeExpandableBadgeShimmer
           label={label}
           secondaryLabel={secondaryLabel}
@@ -2608,6 +2664,7 @@ function computeShimmerMetrics(input: {
   label: string;
   secondaryLabel: string | undefined;
   isLoading: boolean;
+  shimmerSecondaryOnly: boolean;
   labelRowWidth: number;
   labelRowHeight: number;
   labelOffsetX: number;
@@ -2632,7 +2689,10 @@ function computeShimmerMetrics(input: {
   const shouldMeasureNativeShimmer = input.isLoading && isNative;
   const isNativeShimmer =
     shouldMeasureNativeShimmer && input.labelRowWidth > 0 && input.labelRowHeight > 0;
-  const webShimmerSpanStartX = input.labelOffsetX;
+  const webShimmerSpanStartX =
+    input.shimmerSecondaryOnly && input.secondaryLabel
+      ? input.secondaryOffsetX
+      : input.labelOffsetX;
   const webShimmerSpanEndX = input.secondaryLabel
     ? input.secondaryOffsetX + input.secondaryWidth
     : input.labelOffsetX + input.labelWidth;
@@ -2682,6 +2742,26 @@ function useDetailWheelPropagationBlocker(input: {
 const SHIMMER_GRADIENT =
   "linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.45) 24%, #ffffff 40%, #ffffff 60%, rgba(255, 255, 255, 0.45) 76%, rgba(255, 255, 255, 0) 100%)";
 
+/**
+ * Ticker 模式下的扫光：相对文字自身宽度的百分比动画，与横向滚动解耦。
+ * 不依赖任何布局测量，因此内容持续增长、scrollToEnd 滚动时扫光始终
+ * 在文字笔画上移动，不会滚出可视区。仅在 web 上生效。
+ */
+function buildTickerSweepTextStyle(isWebShimmer: boolean): object | null {
+  if (!isWebShimmer) return null;
+  return inlineUnistylesStyle({
+    color: "transparent",
+    backgroundImage:
+      "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 50%, rgba(255,255,255,0) 100%)",
+    backgroundSize: "40% 100%",
+    backgroundRepeat: "no-repeat",
+    backgroundClip: "text",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    animation: `${TICKER_SWEEP_ANIMATION_NAME} 2.2s ease-in-out infinite`,
+  });
+}
+
 function buildShimmerTextStyle(input: {
   isWebShimmer: boolean;
   webShimmerPeakWidth: number;
@@ -2721,6 +2801,8 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   isLastInSequence = false,
   disableOuterSpacing,
   borderlessWhenExpanded = false,
+  shimmerSecondaryOnly = false,
+  secondaryLabelTicker = false,
   testID,
 }: ExpandableBadgeProps) {
   const resolvedDisableOuterSpacing = useDisableOuterSpacing(disableOuterSpacing);
@@ -2778,6 +2860,7 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     label,
     secondaryLabel,
     isLoading,
+    shimmerSecondaryOnly,
     labelRowWidth,
     labelRowHeight,
     labelOffsetX,
@@ -2927,15 +3010,25 @@ export const ExpandableBadge = memo(function ExpandableBadge({
     ],
     [isActive],
   );
+  const secondaryLabelTextStyle = useMemo(
+    () => [
+      expandableBadgeStylesheet.secondaryLabelText,
+      isActive && expandableBadgeStylesheet.secondaryLabelActive,
+    ],
+    [isActive],
+  );
 
   const shimmerLabelTextStyle = useMemo(
-    () => [
-      expandableBadgeStylesheet.label,
-      isLoading && expandableBadgeStylesheet.labelLoading,
-      expandableBadgeStylesheet.shimmerText,
-      shimmerLabelStyle,
-    ],
-    [isLoading, shimmerLabelStyle],
+    () =>
+      shimmerSecondaryOnly
+        ? labelStyle
+        : [
+            expandableBadgeStylesheet.label,
+            isLoading && expandableBadgeStylesheet.labelLoading,
+            expandableBadgeStylesheet.shimmerText,
+            shimmerLabelStyle,
+          ],
+    [isLoading, shimmerLabelStyle, shimmerSecondaryOnly, labelStyle],
   );
 
   const shimmerSecondaryTextStyle = useMemo(
@@ -2995,8 +3088,10 @@ export const ExpandableBadge = memo(function ExpandableBadge({
             labelStyle={labelStyle}
             secondaryLabel={secondaryLabel}
             secondaryLabelStyle={secondaryLabelStyle}
+            secondaryLabelTextStyle={secondaryLabelTextStyle}
             shouldMeasureWebShimmer={shouldMeasureWebShimmer}
             shouldMeasureNativeShimmer={shouldMeasureNativeShimmer}
+            secondaryLabelTicker={secondaryLabelTicker}
             isWebShimmer={isWebShimmer}
             isNativeShimmer={isNativeShimmer}
             shimmerLabelTextStyle={shimmerLabelTextStyle}
@@ -3042,6 +3137,8 @@ function areExpandableBadgePropsEqual(previous: ExpandableBadgeProps, next: Expa
   if (previous.isLastInSequence !== next.isLastInSequence) return false;
   if (previous.disableOuterSpacing !== next.disableOuterSpacing) return false;
   if (previous.borderlessWhenExpanded !== next.borderlessWhenExpanded) return false;
+  if (previous.shimmerSecondaryOnly !== next.shimmerSecondaryOnly) return false;
+  if (previous.secondaryLabelTicker !== next.secondaryLabelTicker) return false;
   if (previous.testID !== next.testID) return false;
   if (previous.onToggle !== next.onToggle) return false;
   if (previous.onOpenFile !== next.onOpenFile) return false;
@@ -3067,6 +3164,10 @@ interface ToolCallProps {
   defaultExpanded?: boolean;
   forceInline?: boolean;
   maxDetailHeight?: number;
+  autoCollapseOnComplete?: boolean;
+  autoScrollToBottom?: boolean;
+  shimmerSecondaryOnly?: boolean;
+  secondaryLabelTicker?: boolean;
 }
 
 export const ToolCall = memo(function ToolCall({
@@ -3086,9 +3187,22 @@ export const ToolCall = memo(function ToolCall({
   defaultExpanded,
   forceInline = false,
   maxDetailHeight = 400,
+  autoCollapseOnComplete = false,
+  autoScrollToBottom = false,
+  shimmerSecondaryOnly = false,
+  secondaryLabelTicker = false,
 }: ToolCallProps) {
   const { openToolCall } = useToolCallSheet();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded ?? false);
+  const previousStatusRef = useRef(status);
+
+  useEffect(() => {
+    const previous = previousStatusRef.current;
+    if (autoCollapseOnComplete && previous !== "completed" && status === "completed") {
+      setIsExpanded(false);
+    }
+    previousStatusRef.current = status;
+  }, [status, autoCollapseOnComplete]);
 
   const isMobile = useIsCompactFormFactor();
   const shouldRenderInline = !isMobile || forceInline;
@@ -3188,6 +3302,7 @@ export const ToolCall = memo(function ToolCall({
         errorText={presentation.errorText}
         maxHeight={maxDetailHeight}
         showLoadingSkeleton={presentation.isLoadingDetails}
+        autoScrollToBottom={autoScrollToBottom}
       />
     );
   }, [
@@ -3196,6 +3311,7 @@ export const ToolCall = memo(function ToolCall({
     presentation.errorText,
     presentation.isLoadingDetails,
     maxDetailHeight,
+    autoScrollToBottom,
   ]);
 
   if (presentation.isPlan && effectiveDetail?.type === "plan") {
@@ -3223,6 +3339,8 @@ export const ToolCall = memo(function ToolCall({
       isLastInSequence={isLastInSequence}
       disableOuterSpacing={disableOuterSpacing}
       onDetailHoverChange={onInlineDetailsHoverChange}
+      shimmerSecondaryOnly={shimmerSecondaryOnly}
+      secondaryLabelTicker={secondaryLabelTicker}
     />
   );
 }, areToolCallPropsEqual);
@@ -3242,5 +3360,9 @@ function areToolCallPropsEqual(previous: ToolCallProps, next: ToolCallProps) {
   if (previous.defaultExpanded !== next.defaultExpanded) return false;
   if (previous.forceInline !== next.forceInline) return false;
   if (previous.maxDetailHeight !== next.maxDetailHeight) return false;
+  if (previous.autoCollapseOnComplete !== next.autoCollapseOnComplete) return false;
+  if (previous.autoScrollToBottom !== next.autoScrollToBottom) return false;
+  if (previous.shimmerSecondaryOnly !== next.shimmerSecondaryOnly) return false;
+  if (previous.secondaryLabelTicker !== next.secondaryLabelTicker) return false;
   return true;
 }

@@ -136,8 +136,11 @@ function buildUnknownDetailOverride(input: ToolCallDisplayInput): DetailDisplay 
     };
   }
   if (input.detail.type === "unknown" && lowerName === "thinking") {
+    const rawText = typeof input.detail.input === "string" ? input.detail.input : "";
+    const text = rawText.replace(/\s+/g, " ").trim();
     return {
       displayName: "Thinking",
+      ...(text ? { summary: text } : {}),
     };
   }
   if (lowerName === "terminal") {

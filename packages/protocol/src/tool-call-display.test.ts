@@ -38,6 +38,58 @@ describe("shared tool-call display mapping", () => {
     });
   });
 
+  it("collapses thinking text into a single-line summary", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "running",
+      error: null,
+      detail: {
+        type: "unknown",
+        input: "Let me\n  think about\n\nthis problem",
+        output: null,
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Thinking",
+      summary: "Let me think about this problem",
+    });
+  });
+
+  it("omits thinking summary when input is not a string", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "running",
+      error: null,
+      detail: {
+        type: "unknown",
+        input: { foo: "bar" },
+        output: null,
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Thinking",
+    });
+  });
+
+  it("omits thinking summary for empty or whitespace-only input", () => {
+    const display = buildToolCallDisplayModel({
+      name: "thinking",
+      status: "running",
+      error: null,
+      detail: {
+        type: "unknown",
+        input: "   \n  ",
+        output: null,
+      },
+    });
+
+    expect(display).toEqual({
+      displayName: "Thinking",
+    });
+  });
+
   it("uses sub-agent detail for task label and description", () => {
     const display = buildToolCallDisplayModel({
       name: "task",

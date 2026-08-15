@@ -1,4 +1,4 @@
-import React, { useMemo, type ReactNode } from "react";
+import React, { useMemo, useRef, type ReactNode } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,7 @@ interface ToolCallDetailsContentProps {
   maxHeight?: number;
   fillAvailableHeight?: boolean;
   showLoadingSkeleton?: boolean;
+  autoScrollToBottom?: boolean;
 }
 
 interface DetailStyles {
@@ -489,14 +490,27 @@ function FetchDetailSection({ url, result, ds }: FetchDetailProps) {
   );
 }
 
-function ScrollablePlainTextSection({ text, ds }: { text: string; ds: DetailStyles }) {
+function ScrollablePlainTextSection({
+  text,
+  ds,
+  autoScroll,
+}: {
+  text: string;
+  ds: DetailStyles;
+  autoScroll: boolean;
+}) {
+  const scrollRef = useRef<any>(null);
   return (
     <View style={styles.section}>
       <ScrollView
+        ref={scrollRef}
         style={ds.scrollAreaStyle}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled
         showsVerticalScrollIndicator
+        onContentSizeChange={
+          autoScroll ? () => scrollRef.current?.scrollToEnd?.({ animated: false }) : undefined
+        }
       >
         <Text selectable style={styles.plainText}>
           {text}
@@ -577,12 +591,24 @@ interface UnknownDetail {
   output: unknown;
 }
 
-function buildUnknownSections(detail: UnknownDetail, ds: DetailStyles, t: TFunction): ReactNode[] {
+function buildUnknownSections(
+  detail: UnknownDetail,
+  ds: DetailStyles,
+  t: TFunction,
+  autoScroll: boolean,
+): ReactNode[] {
   const plainInputText =
     typeof detail.input === "string" && detail.output === null ? detail.input : null;
 
   if (plainInputText !== null) {
-    return [<ScrollablePlainTextSection key="unknown-plain-text" text={plainInputText} ds={ds} />];
+    return [
+      <ScrollablePlainTextSection
+        key="unknown-plain-text"
+        text={plainInputText}
+        ds={ds}
+        autoScroll={autoScroll}
+      />,
+    ];
   }
 
   const sectionsFromTopLevel = [
@@ -631,6 +657,7 @@ function buildDetailSections(
   diffLines: DiffLine[] | undefined,
   ds: DetailStyles,
   t: TFunction,
+  autoScroll: boolean,
 ): ReactNode[] {
   if (!detail) return [];
   if (detail.type === "shell") {
@@ -698,10 +725,12 @@ function buildDetailSections(
   }
   if (detail.type === "plain_text") {
     if (!detail.text) return [];
-    return [<ScrollablePlainTextSection key="plain-text" text={detail.text} ds={ds} />];
+    return [
+      <ScrollablePlainTextSection key="plain-text" text={detail.text} ds={ds} autoScroll={autoScroll} />,
+    ];
   }
   if (detail.type === "unknown") {
-    return buildUnknownSections(detail, ds, t);
+    return buildUnknownSections(detail, ds, t, autoScroll);
   }
   return [];
 }
@@ -746,13 +775,14 @@ export function ToolCallDetailsContent({
   maxHeight,
   fillAvailableHeight = false,
   showLoadingSkeleton = false,
+  autoScrollToBottom = false,
 }: ToolCallDetailsContentProps) {
   const { t } = useTranslation();
   const resolvedMaxHeight = fillAvailableHeight ? undefined : (maxHeight ?? 300);
   const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight);
   const diffLines = useDiffLines(detail);
 
-  const sections: ReactNode[] = buildDetailSections(detail, diffLines, ds, t);
+  const sections: ReactNode[] = buildDetailSections(detail, diffLines, ds, t, autoScrollToBottom);
 
   if (errorText) {
     sections.push(<ErrorSection key="error" errorText={errorText} ds={ds} />);
