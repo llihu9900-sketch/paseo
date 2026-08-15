@@ -2414,12 +2414,26 @@ function ExpandableBadgeSecondaryLabel({
         onLayout={shouldMeasureWebShimmer ? onSecondaryLayout : undefined}
         onContentSizeChange={() => scrollRef.current?.scrollToEnd?.({ animated: false })}
       >
-        <Text
-          style={tickerSweepTextStyle ?? secondaryLabelTextStyle}
-          numberOfLines={1}
-        >
-          {secondaryLabel}
-        </Text>
+        <View style={tickerSweepTextStyle ? { position: "relative" } : undefined}>
+          {/* 底层：正常颜色文字，始终可见 */}
+          <Text style={secondaryLabelTextStyle} numberOfLines={1}>
+            {secondaryLabel}
+          </Text>
+          {/* 顶层：扫光层，透明文字承载渐变，绝对定位覆盖在底层笔画上 */}
+          {tickerSweepTextStyle ? (
+            <Text
+              style={[
+                secondaryLabelTextStyle,
+                tickerSweepTextStyle,
+                { position: "absolute", left: 0, top: 0 },
+              ]}
+              numberOfLines={1}
+              pointerEvents="none"
+            >
+              {secondaryLabel}
+            </Text>
+          ) : null}
+        </View>
       </ScrollView>
     );
   }
@@ -3328,7 +3342,7 @@ export const ToolCall = memo(function ToolCall({
     <ExpandableBadge
       testID="tool-call-badge"
       label={presentation.displayName}
-      secondaryLabel={presentation.summary}
+      secondaryLabel={isExpanded && shouldRenderInline ? undefined : presentation.summary}
       icon={presentation.icon}
       isExpanded={shouldRenderInline && isExpanded}
       onToggle={presentation.canOpenDetails ? handleToggle : undefined}
