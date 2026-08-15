@@ -1,0 +1,75 @@
+name: Android APK Local Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch/ref to build"
+        required: true
+        default: "token-speed"
+        type: string
+
+concurrency:
+  group: android-local-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-android-apk:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install JS dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Build protocol client dependency
+        run: npm run build:client
+
+      - name: Expo prebuild (android)
+        working-directory: packages/app
+        run: |
+          set -euo pipefail
+          npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Gradle assembleRelease
+        working-directory: packages/app/android
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleRelease \
+            -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
+            -x generateReleaseLintModel -x generateReleaseLintVitalModel \
+            --no-daemon
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find packages/app/android/app/build/outputs -name "*.apk" -exec cp {} dist/ \;
+          ls -la dist/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*.apk
+          retention-days: 7
