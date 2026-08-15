@@ -42,6 +42,7 @@ import {
   type DraftAgentControlsProps,
 } from "@/composer/agent-controls";
 import { ContextWindowMeter } from "@/components/context-window-meter";
+import { hasSessionTokenData } from "@/components/context-window-meter.utils";
 import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
 import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
 import { useFilePicker } from "@/hooks/use-file-picker";
@@ -100,6 +101,7 @@ import { ComposerKeyboardScopeProvider } from "@/composer/keyboard-scope";
 import { useAppSettings } from "@/hooks/use-settings";
 import { isWeb, isNative } from "@/constants/platform";
 import type { ForgeSearchItem } from "@getpaseo/protocol/messages";
+import type { AgentUsage } from "@getpaseo/protocol/agent-types";
 import type {
   AttachmentMetadata,
   ComposerAttachment,
@@ -241,14 +243,33 @@ function buildRealtimeVoiceButtonStyle(
   );
 }
 
+function selectUsageFields(
+  agent: {
+    lastUsage?: AgentUsage;
+    sessionUsage?: AgentUsage;
+  } | null,
+): {
+  contextWindowMaxTokens: number | null;
+  contextWindowUsedTokens: number | null;
+  totalCostUsd: number | null;
+  sessionInputTokens: number | null;
+  sessionOutputTokens: number | null;
+} {
+  return {
+    contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
+    contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
+    totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+    sessionInputTokens: agent?.sessionUsage?.inputTokens ?? null,
+    sessionOutputTokens: agent?.sessionUsage?.outputTokens ?? null,
+  };
+}
+
 function buildAgentStateSelector(serverId: string, agentId: string) {
   return (state: ReturnType<typeof useSessionStore.getState>) => {
     const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
     return {
       status: agent?.status ?? null,
-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+      ...selectUsageFields(agent),
       model: agent?.model ?? null,
       provider: agent?.provider ?? null,
     };
@@ -259,6 +280,8 @@ function renderContextWindowMeter(
   contextWindowMaxTokens: number | null,
   contextWindowUsedTokens: number | null,
   totalCostUsd: number | null,
+  sessionInputTokens: number | null,
+  sessionOutputTokens: number | null,
   showPercentage: boolean,
   serverId: string,
   provider: string | null,
@@ -266,7 +289,8 @@ function renderContextWindowMeter(
   glyphSize: number,
 ): ReactElement | null {
   const hasData = contextWindowMaxTokens !== null && contextWindowUsedTokens !== null;
-  if (!hasData && !pending) {
+  const hasSessionTokens = hasSessionTokenData(sessionInputTokens, sessionOutputTokens);
+  if (!hasData && !hasSessionTokens && !pending) {
     return null;
   }
   return (
@@ -274,6 +298,8 @@ function renderContextWindowMeter(
       maxTokens={contextWindowMaxTokens}
       usedTokens={contextWindowUsedTokens}
       totalCostUsd={totalCostUsd}
+      sessionInputTokens={sessionInputTokens}
+      sessionOutputTokens={sessionOutputTokens}
       showPercentage={showPercentage}
       serverId={serverId}
       provider={provider}
@@ -1882,6 +1908,8 @@ export function Composer({
         contextWindowMaxTokens,
         contextWindowUsedTokens,
         agentState.totalCostUsd,
+        agentState.sessionInputTokens,
+        agentState.sessionOutputTokens,
         false,
         serverId,
         agentState.provider,
@@ -1892,6 +1920,8 @@ export function Composer({
       contextWindowMaxTokens,
       contextWindowUsedTokens,
       agentState.totalCostUsd,
+      agentState.sessionInputTokens,
+      agentState.sessionOutputTokens,
       serverId,
       agentState.provider,
       contextWindowPending,

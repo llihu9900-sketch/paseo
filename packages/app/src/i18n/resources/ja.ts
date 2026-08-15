@@ -1728,7 +1728,10 @@ export const ja: TranslationResources = {
     used: "{{percentage}}%使用",
     tokens: "{{used}} / {{max}}トークン",
     sessionCost: "セッションコスト: {{cost}}",
+    sessionInputTokens: "セッション入力 {{tokens}}トークン",
+    sessionOutputTokens: "セッション出力 {{tokens}}トークン",
     accessibility: "コンテキストウィンドウ{{percentage}}%使用",
+    sessionUsageAccessibility: "セッションの入出力トークン使用量",
   },
   review: {
     comment: {

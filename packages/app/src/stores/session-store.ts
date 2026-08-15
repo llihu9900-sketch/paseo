@@ -88,6 +88,8 @@ export interface Agent {
   persistence: AgentPersistenceHandle | null;
   runtimeInfo?: AgentRuntimeInfo;
   lastUsage?: AgentUsage;
+  /** Cumulative token totals for the live session, projected from the daemon. */
+  sessionUsage?: AgentUsage;
   lastError?: string | null;
   title: string | null;
   cwd: string;

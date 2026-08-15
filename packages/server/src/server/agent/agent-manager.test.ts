@@ -5293,6 +5293,7 @@ test("ignores stale autonomous terminals without lowering the active turn lifecy
     expect(stillRunning ? toAgentPayload(stillRunning).activeTurn?.turnId : null).toBe("turn-b");
     expect(stillRunning?.lastError).toBe("turn-b marker");
     expect(stillRunning?.lastUsage).toEqual({ inputTokens: 7 });
+    expect(stillRunning?.sessionUsage).toEqual({ inputTokens: 7 });
     expect(stillRunning?.pendingPermissions.has("turn-b-permission")).toBe(true);
     expect(manager.getTimeline(snapshot.id)).toEqual(timelineBeforeStaleTerminals);
   }
@@ -5345,6 +5346,58 @@ test("preserves terminal fallback when no active turn identity was observed", as
       text: expect.stringContaining("untracked failure"),
     }),
   );
+});
+
+test("accumulates session input/output tokens across completed turns", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-session-usage-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  let capturedSession: TestAgentSession | null = null;
+
+  class LiveEventClient extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      capturedSession = new TestAgentSession(config);
+      return capturedSession;
+    }
+  }
+
+  const manager = new AgentManager({
+    clients: { codex: new LiveEventClient() },
+    registry: storage,
+    logger,
+    idFactory: () => "00000000-0000-4000-8000-000000000137",
+  });
+  const snapshot = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+
+  capturedSession!.pushEvent({
+    type: "turn_completed",
+    provider: "codex",
+    turnId: "turn-1",
+    usage: { inputTokens: 100, outputTokens: 40 },
+  });
+  capturedSession!.pushEvent({
+    type: "turn_completed",
+    provider: "codex",
+    turnId: "turn-2",
+    usage: { inputTokens: 50, outputTokens: 25 },
+  });
+  await vi.waitFor(() => {
+    const agent = manager.getAgent(snapshot.id);
+    expect(agent?.sessionUsage).toEqual({ inputTokens: 150, outputTokens: 65 });
+  });
+
+  // Bogus numeric payloads must be ignored instead of poisoning the totals.
+  capturedSession!.pushEvent({
+    type: "turn_completed",
+    provider: "codex",
+    turnId: "turn-3",
+    usage: { inputTokens: NaN, outputTokens: 10 },
+  });
+  await vi.waitFor(() => {
+    const agent = manager.getAgent(snapshot.id);
+    expect(agent?.sessionUsage).toEqual({ inputTokens: 150, outputTokens: 75 });
+  });
 });
 
 test("cancelAgentRun waits for an acknowledged autonomous interrupt to settle", async () => {

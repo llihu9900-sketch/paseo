@@ -1712,7 +1712,10 @@ export const ar: TranslationResources = {
     used: "تم استخدام{{percentage}}%",
     tokens: "رموز{{used}}/{{max}}",
     sessionCost: "تكلفة الجلسة{{cost}}",
+    sessionInputTokens: "إدخال الجلسة {{tokens}} رمز",
+    sessionOutputTokens: "إخراج الجلسة {{tokens}} رمز",
     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
+    sessionUsageAccessibility: "استخدام رموز الإدخال والإخراج للجلسة",
   },
   review: {
     comment: {

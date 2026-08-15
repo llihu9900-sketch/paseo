@@ -142,6 +142,11 @@ export function toAgentPayload(
     payload.lastUsage = usage;
   }
 
+  const sessionUsage = sanitizeUsage(agent.sessionUsage);
+  if (sessionUsage !== undefined) {
+    payload.sessionUsage = sessionUsage;
+  }
+
   if (agent.lastError !== undefined) {
     payload.lastError = agent.lastError;
   }

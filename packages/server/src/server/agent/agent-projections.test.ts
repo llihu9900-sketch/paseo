@@ -413,6 +413,31 @@ describe("toAgentPayload", () => {
     expect(payload).not.toHaveProperty("lastUsage");
   });
 
+  it("projects cumulative session usage when present", () => {
+    const agent = createManagedAgent({
+      sessionUsage: { inputTokens: 340, outputTokens: 120 },
+    });
+    const payload = toAgentPayload(agent);
+    expect(payload.sessionUsage).toEqual({ inputTokens: 340, outputTokens: 120 });
+  });
+
+  it("omits sessionUsage when not available", () => {
+    const agent = createManagedAgent({ sessionUsage: undefined });
+    const payload = toAgentPayload(agent);
+    expect(payload).not.toHaveProperty("sessionUsage");
+  });
+
+  it("omits sessionUsage when it contains invalid numbers", () => {
+    const agent = createManagedAgent({
+      sessionUsage: {
+        inputTokens: 340,
+        outputTokens: NaN,
+      },
+    });
+    const payload = toAgentPayload(agent);
+    expect(payload).not.toHaveProperty("sessionUsage");
+  });
+
   it("preserves context window usage fields when they are valid numbers", () => {
     const agent = createManagedAgent({
       lastUsage: {

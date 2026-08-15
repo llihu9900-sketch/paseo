@@ -3,15 +3,24 @@ import { Pressable, Text, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProviderUsageTooltipSection } from "@/provider-usage/tooltip-section";
 import { useProviderUsage } from "@/provider-usage/use-provider-usage";
-import { formatTokenCount } from "./context-window-meter.utils";
+import {
+  formatTokenCount,
+  hasSessionTokenData,
+  isFiniteTokenValue,
+} from "./context-window-meter.utils";
 
 interface ContextWindowMeterProps {
   maxTokens: number | null;
   usedTokens: number | null;
   totalCostUsd?: number | null;
+  /** Cumulative session input tokens; the row is hidden when absent. */
+  sessionInputTokens?: number | null;
+  /** Cumulative session output tokens; the row is hidden when absent. */
+  sessionOutputTokens?: number | null;
   showPercentage?: boolean;
   serverId?: string;
   /** The Paseo provider key, e.g. "claude", "gemini", "codex" */
@@ -96,10 +105,41 @@ function getMeterGeometry(showPercentage: boolean, glyphSize?: number) {
   };
 }
 
+function SessionTokenRows({
+  sessionInputTokens,
+  sessionOutputTokens,
+  t,
+}: {
+  sessionInputTokens: number | null | undefined;
+  sessionOutputTokens: number | null | undefined;
+  t: TFunction;
+}) {
+  return (
+    <>
+      {isFiniteTokenValue(sessionInputTokens) ? (
+        <Text style={styles.tooltipDetail}>
+          {t("contextWindow.sessionInputTokens", {
+            tokens: formatTokenCount(sessionInputTokens),
+          })}
+        </Text>
+      ) : null}
+      {isFiniteTokenValue(sessionOutputTokens) ? (
+        <Text style={styles.tooltipDetail}>
+          {t("contextWindow.sessionOutputTokens", {
+            tokens: formatTokenCount(sessionOutputTokens),
+          })}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
 export function ContextWindowMeter({
   maxTokens,
   usedTokens,
   totalCostUsd,
+  sessionInputTokens,
+  sessionOutputTokens,
   showPercentage = false,
   serverId,
   provider,
@@ -126,41 +166,21 @@ export function ContextWindowMeter({
   );
 
   const geometry = getMeterGeometry(showPercentage, glyphSize);
+  const { svgSize, center, radius, strokeWidth, circumference, containerStyle } = geometry;
 
-  // No usage yet: reserve the footprint with a track-only ring while a session is
-  // active so the real ring fades in without shifting siblings. Render nothing when
-  // no usage is expected.
-  if (percentage === null || maxTokens === null || usedTokens === null) {
-    if (!pending) {
-      return null;
-    }
-    return (
-      <View style={geometry.containerStyle}>
-        <Svg
-          width={geometry.svgSize}
-          height={geometry.svgSize}
-          viewBox={`0 0 ${geometry.svgSize} ${geometry.svgSize}`}
-          style={styles.svg}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        >
-          <Circle
-            cx={geometry.center}
-            cy={geometry.center}
-            r={geometry.radius}
-            fill="none"
-            stroke={theme.colors.surface3}
-            strokeWidth={geometry.strokeWidth}
-          />
-        </Svg>
-        {showPercentage ? <View style={styles.skeletonLabel} /> : null}
-      </View>
-    );
+  const hasContextWindow = percentage !== null && maxTokens !== null && usedTokens !== null;
+  const hasSessionTokens = hasSessionTokenData(sessionInputTokens, sessionOutputTokens);
+
+  // Render nothing when neither context window usage nor session totals are
+  // available and no session is pending yet. Session totals and context
+  // window usage are independent provider reports: a provider that reports
+  // one without the other (e.g. session tokens without a window budget)
+  // still gets the meter with the rows it can populate.
+  if (!hasContextWindow && !pending && !hasSessionTokens) {
+    return null;
   }
 
-  const clampedPercentage = clampPercentage(percentage);
-  const roundedPercentage = Math.round(percentage);
-  const { svgSize, center, radius, strokeWidth, circumference, containerStyle } = geometry;
+  const clampedPercentage = hasContextWindow ? clampPercentage(percentage) : 0;
   const dashOffset = circumference - (clampedPercentage / 100) * circumference;
   const colors = getMeterColors(clampedPercentage, theme);
   const formattedSessionCost =
@@ -179,9 +199,11 @@ export function ContextWindowMeter({
           style={containerStyle}
           testID="context-window-meter"
           accessibilityRole="image"
-          accessibilityLabel={t("contextWindow.accessibility", {
-            percentage: roundedPercentage,
-          })}
+          accessibilityLabel={
+            hasContextWindow
+              ? t("contextWindow.accessibility", { percentage: Math.round(percentage) })
+              : t("contextWindow.sessionUsageAccessibility")
+          }
         >
           <Svg
             width={svgSize}
@@ -199,40 +221,51 @@ export function ContextWindowMeter({
               stroke={colors.track}
               strokeWidth={strokeWidth}
             />
-            <Circle
-              cx={center}
-              cy={center}
-              r={radius}
-              fill="none"
-              stroke={colors.progress}
-              strokeWidth={strokeWidth}
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-            />
+            {hasContextWindow ? (
+              <Circle
+                cx={center}
+                cy={center}
+                r={radius}
+                fill="none"
+                stroke={colors.progress}
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={dashOffset}
+              />
+            ) : null}
           </Svg>
-          {showPercentage ? (
-            <Text style={styles.percentageLabel}>{`${roundedPercentage}%`}</Text>
+          {showPercentage && hasContextWindow ? (
+            <Text style={styles.percentageLabel}>{`${Math.round(percentage)}%`}</Text>
           ) : null}
         </Pressable>
       </TooltipTrigger>
       <TooltipContent side="top" align="center" offset={8}>
         <View style={styles.tooltipContent}>
-          <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
-          <Text style={styles.tooltipText}>
-            {t("contextWindow.used", { percentage: roundedPercentage })}
-          </Text>
-          <Text style={styles.tooltipDetail}>
-            {t("contextWindow.tokens", {
-              used: formatTokenCount(usedTokens),
-              max: formatTokenCount(maxTokens),
-            })}
-          </Text>
+          {hasContextWindow ? (
+            <>
+              <Text style={styles.tooltipTitle}>{t("contextWindow.title")}</Text>
+              <Text style={styles.tooltipText}>
+                {t("contextWindow.used", { percentage: Math.round(percentage) })}
+              </Text>
+              <Text style={styles.tooltipDetail}>
+                {t("contextWindow.tokens", {
+                  used: formatTokenCount(usedTokens),
+                  max: formatTokenCount(maxTokens),
+                })}
+              </Text>
+            </>
+          ) : null}
           {formattedSessionCost ? (
             <Text style={styles.tooltipDetail}>
               {t("contextWindow.sessionCost", { cost: formattedSessionCost })}
             </Text>
           ) : null}
+          <SessionTokenRows
+            sessionInputTokens={sessionInputTokens}
+            sessionOutputTokens={sessionOutputTokens}
+            t={t}
+          />
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />
         </View>
       </TooltipContent>
@@ -263,12 +296,6 @@ const styles = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: theme.fontSize.sm,
     fontWeight: theme.fontWeight.normal,
-  },
-  skeletonLabel: {
-    width: 22,
-    height: theme.fontSize.sm,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.surface3,
   },
   tooltipContent: {
     gap: theme.spacing[1.5],

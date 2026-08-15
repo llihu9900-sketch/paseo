@@ -30,6 +30,7 @@ function createSnapshot(
     availableModes: input.availableModes ?? [],
     pendingPermissions: input.pendingPermissions ?? [],
     persistence: input.persistence ?? null,
+    sessionUsage: input.sessionUsage,
     title: input.title ?? null,
     labels: (input.labels ?? {}) as AgentSnapshotPayload["labels"],
   };
@@ -103,5 +104,22 @@ describe("normalizeAgentSnapshot", () => {
     expect(missing.parentAgentId).toBeNull();
     expect(empty.parentAgentId).toBeNull();
     expect(nonString.parentAgentId).toBeNull();
+  });
+
+  it("round-trips cumulative session usage through the snapshot boundary", () => {
+    const snapshot = createSnapshot({
+      sessionUsage: { inputTokens: 340, outputTokens: 120 },
+    });
+
+    const normalized = normalizeAgentSnapshot(snapshot, "server-1");
+    expect(normalized.sessionUsage).toEqual({ inputTokens: 340, outputTokens: 120 });
+    expect(projectAgentSnapshot(normalized)).toMatchObject({
+      sessionUsage: { inputTokens: 340, outputTokens: 120 },
+    });
+  });
+
+  it("omits session usage from the wire projection when absent", () => {
+    const normalized = normalizeAgentSnapshot(createSnapshot(), "server-1");
+    expect(projectAgentSnapshot(normalized)).not.toHaveProperty("sessionUsage");
   });
 });

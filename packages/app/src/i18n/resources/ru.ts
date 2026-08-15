@@ -1746,7 +1746,10 @@ export const ru: TranslationResources = {
     used: "{{percentage}}% использовано",
     tokens: "Токены{{used}}/{{max}}",
     sessionCost: "Стоимость сеанса{{cost}}",
+    sessionInputTokens: "Ввод сеанса {{tokens}} токенов",
+    sessionOutputTokens: "Вывод сеанса {{tokens}} токенов",
     accessibility: "Контекстное окно{{percentage}}% использовано",
+    sessionUsageAccessibility: "Использование входных и выходных токенов сеанса",
   },
   review: {
     comment: {

@@ -1722,7 +1722,10 @@ export const en = {
     used: "{{percentage}}% used",
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "Session cost {{cost}}",
+    sessionInputTokens: "Session input {{tokens}} tokens",
+    sessionOutputTokens: "Session output {{tokens}} tokens",
     accessibility: "Context window {{percentage}}% used",
+    sessionUsageAccessibility: "Session input and output token usage",
   },
   review: {
     comment: {

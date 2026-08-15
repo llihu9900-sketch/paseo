@@ -358,6 +358,8 @@ interface ManagedAgentBase {
   activeTurnId: string | null;
   activeTurnStartedAt: Date | null;
   lastUsage?: AgentUsage;
+  /** Cumulative token totals for the live session, accumulated per completed turn. */
+  sessionUsage?: AgentUsage;
   lastError?: string;
   attention: AttentionState;
   foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
@@ -509,6 +511,42 @@ function isTurnTerminalEvent(event: AgentStreamEvent): boolean {
     event.type === "turn_failed" ||
     event.type === "turn_canceled"
   );
+}
+
+/**
+ * Fold a completed turn's input/output tokens into the live session totals.
+ * Only finite, non-negative numbers are accumulated; anything else is ignored
+ * so a bogus provider payload cannot poison the session counter. Accumulation
+ * is deliberately scoped to `turn_completed` usage: mid-turn `usage_updated`
+ * events are per-request snapshots for some providers (claude) and cumulative
+ * session stats for others (pi), so summing them would double count. Providers
+ * that only report usage on `usage_updated` (pi/omp) simply won't accrue
+ * session totals until they attach usage to turn completion.
+ */
+function accumulateSessionUsage(
+  current: AgentUsage | undefined,
+  turnUsage: AgentUsage,
+): AgentUsage | undefined {
+  const inputTokens = addFiniteTokenCount(current?.inputTokens, turnUsage.inputTokens);
+  const outputTokens = addFiniteTokenCount(current?.outputTokens, turnUsage.outputTokens);
+  if (inputTokens === undefined && outputTokens === undefined) {
+    return current;
+  }
+  const next: AgentUsage = { ...current };
+  if (inputTokens !== undefined) {
+    next.inputTokens = inputTokens;
+  }
+  if (outputTokens !== undefined) {
+    next.outputTokens = outputTokens;
+  }
+  return next;
+}
+
+function addFiniteTokenCount(base: number | undefined, delta: unknown): number | undefined {
+  if (typeof delta !== "number" || !Number.isFinite(delta) || delta < 0) {
+    return undefined;
+  }
+  return (base ?? 0) + delta;
 }
 
 function abortMessage(reason: unknown, fallbackMessage: string): string {
@@ -1321,6 +1359,7 @@ export class AgentManager {
     const rehydrateFromDisk = options?.rehydrateFromDisk ?? false;
     const preservedHistoryPrimed = existing.historyPrimed;
     const preservedLastUsage = existing.lastUsage;
+    const preservedSessionUsage = existing.sessionUsage;
     const preservedLastError = existing.lastError;
     const preservedAttention = existing.attention;
     const handle = existing.persistence;
@@ -1374,6 +1413,7 @@ export class AgentManager {
         lastUserMessageAt: existing.lastUserMessageAt,
         historyPrimed: rehydrateFromDisk ? false : preservedHistoryPrimed,
         lastUsage: preservedLastUsage,
+        sessionUsage: preservedSessionUsage,
         lastError: preservedLastError,
         attention: preservedAttention,
       });
@@ -1656,6 +1696,7 @@ export class AgentManager {
         historyPrimed: true,
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
         lastUsage: undefined,
+        sessionUsage: undefined,
         lastError: record.lastError ?? undefined,
         attention: { requiresAttention: false },
         internal: record.internal,
@@ -2913,6 +2954,7 @@ export class AgentManager {
       persistence?: AgentPersistenceHandle;
       historyPrimed?: boolean;
       lastUsage?: AgentUsage;
+      sessionUsage?: AgentUsage;
       lastError?: string;
       attention?: AttentionState;
       initialTitle?: string | null;
@@ -3067,6 +3109,7 @@ export class AgentManager {
           labels?: Record<string, string>;
           historyPrimed?: boolean;
           lastUsage?: AgentUsage;
+          sessionUsage?: AgentUsage;
           lastError?: string;
           attention?: AttentionState;
           persistence?: AgentPersistenceHandle;
@@ -3108,6 +3151,7 @@ export class AgentManager {
       historyPrimed: options?.historyPrimed ?? durableTimelineHasRows,
       lastUserMessageAt: options?.lastUserMessageAt ?? null,
       lastUsage: options?.lastUsage,
+      sessionUsage: options?.sessionUsage,
       lastError: options?.lastError,
       attention: resolveInitialAttention(options?.attention),
       internal: config.internal ?? false,
@@ -3861,6 +3905,7 @@ export class AgentManager {
     if (terminalDisposition === "stale") return;
     if (event.usage) {
       agent.lastUsage = { ...agent.lastUsage, ...event.usage };
+      agent.sessionUsage = accumulateSessionUsage(agent.sessionUsage, event.usage);
     }
     // If no usage on turn_completed, keep lastUsage as-is so context window
     // data accumulated during streaming isn't lost when the provider omits

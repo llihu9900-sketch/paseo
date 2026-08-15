@@ -1759,7 +1759,10 @@ export const fr: TranslationResources = {
     used: "{{percentage}}% utilisé",
     tokens: "Jetons{{used}}/{{max}}",
     sessionCost: "Coût de la séance{{cost}}",
+    sessionInputTokens: "Entrée de session {{tokens}} jetons",
+    sessionOutputTokens: "Sortie de session {{tokens}} jetons",
     accessibility: "Fenêtre contextuelle{{percentage}}% utilisé",
+    sessionUsageAccessibility: "Utilisation des jetons d'entrée et de sortie de la session",
   },
   review: {
     comment: {
