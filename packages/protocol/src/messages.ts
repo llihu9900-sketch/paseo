@@ -382,6 +382,7 @@ const AgentUsageSchema: z.ZodType<AgentUsage> = z.object({
   totalCostUsd: z.number().optional(),
   contextWindowMaxTokens: z.number().optional(),
   contextWindowUsedTokens: z.number().optional(),
+  tokensPerSecond: z.number().optional(),
 });
 
 const McpStdioServerConfigSchema = z.object({

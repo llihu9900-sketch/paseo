@@ -681,6 +681,8 @@ export interface AssistantMessageItem {
   timestamp: Date;
   blockGroupId?: string;
   blockIndex?: number;
+  /** Decode throughput for the completed turn, attached by applyCompletionToTail. */
+  tokensPerSecond?: number;
 }
 
 export interface TimelinePosition {
@@ -1543,7 +1545,36 @@ function applyCompletionToTail(
   source: StreamUpdateSource,
 ): StreamItem[] {
   const finalized = finalizeActiveThoughts(tail);
-  return reduceStreamUpdate(finalized, event, timestamp, { source });
+  const reduced = reduceStreamUpdate(finalized, event, timestamp, { source });
+  if (event.type === "turn_completed" && event.usage?.tokensPerSecond !== undefined) {
+    return attachTurnTokensPerSecond(reduced, event.usage.tokensPerSecond);
+  }
+  return reduced;
+}
+
+/**
+ * Attach a completed turn's decode throughput to its last assistant message
+ * so the turn footer can render `· N tok/s` next to the duration. Scoped to
+ * the most recent user message's tail to avoid leaking the rate onto a
+ * previous turn when the provider reports completion without assistant text.
+ */
+function attachTurnTokensPerSecond(tail: StreamItem[], tps: number): StreamItem[] {
+  let userIndex = -1;
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    if (tail[i].kind === "user_message") {
+      userIndex = i;
+      break;
+    }
+  }
+  for (let i = tail.length - 1; i > userIndex; i -= 1) {
+    const item = tail[i];
+    if (item.kind === "assistant_message") {
+      const updated = [...tail];
+      updated[i] = { ...item, tokensPerSecond: tps };
+      return updated;
+    }
+  }
+  return tail;
 }
 
 /**

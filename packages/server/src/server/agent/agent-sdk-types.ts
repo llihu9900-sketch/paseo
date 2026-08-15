@@ -221,6 +221,12 @@ export interface AgentUsage {
   totalCostUsd?: number;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
+  /**
+   * Decode throughput for the completed turn: output tokens per second.
+   * Derived from provider-reported per-turn output tokens and decode wall time
+   * (e.g. ACP `_meta.usage.outputTokens` / `_meta.durationMs`).
+   */
+  tokensPerSecond?: number;
 }
 
 export const TOOL_CALL_ICON_NAMES = [

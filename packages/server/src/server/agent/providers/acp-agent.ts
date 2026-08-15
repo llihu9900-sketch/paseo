@@ -1455,6 +1455,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private initialCommandsWaitTimeoutMs: number;
   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
   private currentTurnUsage: AgentUsage | undefined;
+  private currentTurnTokensPerSecond: number | undefined;
   private activeForegroundTurnId: string | null = null;
   private fallbackAssistantMessageId: string | null = null;
   private closed = false;
@@ -1625,6 +1626,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.activeForegroundTurnId = turnId;
     this.fallbackAssistantMessageId = null;
     this.submittedUserMessageTurnId = null;
+    this.currentTurnUsage = undefined;
+    this.currentTurnTokensPerSecond = undefined;
     this.emitBootstrapThreadEvent();
     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
     this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
@@ -2638,6 +2641,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     const pendingUserEvents = this.flushPendingUserMessage();
     switch (update.sessionUpdate) {
       case "agent_message_chunk": {
+        this.captureTranscriptUsage(update);
         const item = this.createMessageTimelineItem("assistant_message", update);
         return item ? [...pendingUserEvents, this.wrapTimeline(item)] : pendingUserEvents;
       }
@@ -2843,7 +2847,99 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   }
 
   private handleUsageUpdate(update: UsageUpdate): void {
-    void update;
+    this.logger.info(
+      { provider: this.provider, size: update.size, used: update.used, sessionId: this.sessionId },
+      "ACP usage_update received",
+    );
+    // ACP usage_update 是流式阶段唯一的上下文窗口数据源：
+    //   size = 上下文窗口上限（tokens）
+    //   used = 当前已占用 tokens
+    // qwen-code >= 0.21.8 等 ACP provider 在每个模型轮次结束后上报此帧。
+    // 数据来自外部 agent 进程，必须做运行时校验（NaN/Infinity/负数/0）。
+    const size = update.size;
+    const used = update.used;
+
+    const usage: AgentUsage = {};
+    if (Number.isFinite(size) && size > 0) {
+      usage.contextWindowMaxTokens = size;
+    }
+    if (Number.isFinite(used) && used >= 0) {
+      usage.contextWindowUsedTokens = used;
+    }
+    // ACP cost 是任意 ISO 4217 货币，而 AgentUsage.totalCostUsd 语义明确是美元。
+    // 仅在币种为 USD 时映射，避免把非美元金额误标为美元。
+    if (
+      update.cost &&
+      typeof update.cost.amount === "number" &&
+      Number.isFinite(update.cost.amount) &&
+      update.cost.amount >= 0 &&
+      typeof update.cost.currency === "string" &&
+      update.cost.currency.toUpperCase() === "USD"
+    ) {
+      usage.totalCostUsd = update.cost.amount;
+    }
+
+    // 没有有效字段就不发布，避免空 usage 事件污染 agent.lastUsage。
+    if (
+      usage.contextWindowMaxTokens === undefined &&
+      usage.contextWindowUsedTokens === undefined &&
+      usage.totalCostUsd === undefined
+    ) {
+      return;
+    }
+
+    this.pushEvent({
+      type: "usage_updated",
+      provider: this.provider,
+      usage,
+      turnId: this.activeForegroundTurnId ?? undefined,
+    });
+  }
+
+  /**
+   * Extract per-turn output tokens and decode wall time from a provider's
+   * `_meta` extension on `agent_message_chunk`. qwen-code >= 0.21.8 attaches
+   * `_meta.usage.outputTokens` (candidatesTokenCount) and `_meta.durationMs`
+   * (model round decode time) to an empty-text message chunk. Other providers
+   * that do not emit this shape are silently ignored.
+   *
+   * The values are provider-reported and unvalidated at the protocol layer, so
+   * every numeric read is guarded: NaN/Infinity/negative/zero decode time are
+   * rejected to avoid poisoning the footer with a bogus rate.
+   */
+  private captureTranscriptUsage(update: { _meta?: { [key: string]: unknown } | null }): void {
+    const meta = update._meta as
+      | { usage?: { outputTokens?: number }; durationMs?: number }
+      | null
+      | undefined;
+    const outputTokens = meta?.usage?.outputTokens;
+    const durationMs = meta?.durationMs;
+    if (
+      typeof outputTokens === "number" &&
+      Number.isFinite(outputTokens) &&
+      outputTokens >= 0 &&
+      typeof durationMs === "number" &&
+      Number.isFinite(durationMs) &&
+      durationMs > 0
+    ) {
+      this.currentTurnTokensPerSecond = outputTokens / (durationMs / 1000);
+    }
+  }
+
+  /**
+   * Build the usage carried on turn_completed, folding in the decode
+   * throughput captured from the provider's `_meta` transcript if present.
+   * Returns undefined when neither the ACP prompt usage nor the transcript
+   * throughput produced a value.
+   */
+  private resolveTurnCompletionUsage(): AgentUsage | undefined {
+    if (this.currentTurnTokensPerSecond === undefined) {
+      return this.currentTurnUsage;
+    }
+    return {
+      ...(this.currentTurnUsage ?? {}),
+      tokensPerSecond: this.currentTurnTokensPerSecond,
+    };
   }
 
   private handlePromptResponse(response: PromptResponse, turnId: string): void {
@@ -2867,7 +2963,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
         this.finishTurn({
           type: "turn_completed",
           provider: this.provider,
-          usage: this.currentTurnUsage,
+          usage: this.resolveTurnCompletionUsage(),
           turnId,
         });
         break;

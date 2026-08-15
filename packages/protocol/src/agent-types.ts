@@ -181,6 +181,8 @@ export interface AgentUsage {
   totalCostUsd?: number;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
+  /** Decode throughput for the completed turn: output tokens per second. */
+  tokensPerSecond?: number;
 }
 
 export const TOOL_CALL_ICON_NAMES = [

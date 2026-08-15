@@ -568,6 +568,7 @@ interface AssistantTurnFooterProps {
   getContent: () => string;
   completedAt?: Date;
   durationMs?: number;
+  tokensPerSecond?: number;
   onFork?: (target: AssistantForkTarget) => Promise<void> | void;
 }
 
@@ -599,9 +600,23 @@ const assistantTurnFooterStylesheet = StyleSheet.create((theme) => ({
     color: theme.colors.foregroundMuted,
     fontSize: STREAM_METADATA_FONT_SIZE,
   },
+  tokensPerSecondLabel: {
+    color: theme.colors.foregroundMuted,
+    fontSize: STREAM_METADATA_FONT_SIZE,
+    fontVariant: ["tabular-nums"],
+  },
 }));
 
 const TIMESTAMP_REVEAL_MS = 3000;
+
+/**
+ * Decode-throughput figure: whole tokens from ten up, one decimal below.
+ * Mirrors deepseek-harness's formatTokensPerSecond.
+ */
+function formatTokensPerSecond(tps: number): string {
+  const clamped = Math.max(0, tps);
+  return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10);
+}
 
 /**
  * Footer rendered next to the copy button at the end of an assistant turn.
@@ -613,6 +628,7 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   getContent,
   completedAt,
   durationMs,
+  tokensPerSecond,
   onFork,
 }: AssistantTurnFooterProps) {
   const [hovered, setHovered] = useState(false);
@@ -635,6 +651,13 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
   const timestampLabel = useMemo(
     () => (completedAt ? formatMessageTimestamp(completedAt) : ""),
     [completedAt],
+  );
+  const tokensPerSecondLabel = useMemo(
+    () =>
+      tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)
+        ? formatTokensPerSecond(tokensPerSecond)
+        : "",
+    [tokensPerSecond],
   );
 
   const canSwap = Boolean(timestampLabel);
@@ -687,6 +710,11 @@ export const AssistantTurnFooter = memo(function AssistantTurnFooter({
             </Text>
           </View>
         </Pressable>
+      ) : null}
+      {tokensPerSecondLabel ? (
+        <Text style={assistantTurnFooterStylesheet.tokensPerSecondLabel}>
+          {`· ${tokensPerSecondLabel} tok/s`}
+        </Text>
       ) : null}
     </View>
   );

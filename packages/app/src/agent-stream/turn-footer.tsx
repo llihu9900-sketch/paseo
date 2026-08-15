@@ -180,6 +180,15 @@ function CompletedTurnFooter({
       }),
     [strategy, items, startIndex],
   );
+  const tokensPerSecond = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item.kind === "assistant_message" && item.tokensPerSecond !== undefined) {
+        return item.tokensPerSecond;
+      }
+    }
+    return undefined;
+  }, [items]);
   const boundary = resolveAssistantTurnForkBoundary({
     items,
     startIndex,
@@ -200,6 +209,7 @@ function CompletedTurnFooter({
         getContent={getContent}
         completedAt={timing?.completedAt}
         durationMs={timing?.durationMs}
+        tokensPerSecond={tokensPerSecond}
         onFork={boundary && onForkAssistantTurn ? handleFork : undefined}
       />
     </View>
