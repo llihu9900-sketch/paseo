@@ -55,6 +55,16 @@ jobs:
           set -euo pipefail
           CI=1 npx expo prebuild --platform android --no-install --non-interactive
 
+      - name: Tune gradle memory
+        working-directory: packages/app/android
+        run: |
+          set -euo pipefail
+          # 降低内存峰值，避免 GitHub Actions 7GB 限制 OOM
+          sed -i 's/-Xmx4096m/-Xmx2048m/' gradle.properties
+          sed -i 's/org.gradle.parallel=true/org.gradle.parallel=false/' gradle.properties
+          printf 'org.gradle.workers.max=2\n' >> gradle.properties
+          cat gradle.properties
+
       - name: Gradle assembleRelease
         working-directory: packages/app/android
         env:
@@ -65,7 +75,10 @@ jobs:
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
-            --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
+            --no-daemon --stacktrace \
+            --max-workers=2 \
+            -PreactNativeArchitectures=arm64-v8a \
+            2>&1 | tee /tmp/gradle-build.log
         continue-on-error: true
 
       - name: Upload gradle log
@@ -78,17 +91,17 @@ jobs:
 
       - name: Collect APK
         shell: bash
-        if: success()
         run: |
           set -euo pipefail
           mkdir -p dist
           find packages/app/android/app/build/outputs -name "*.apk" -exec cp {} dist/ \;
-          ls -la dist/
+          ls -la dist/ || echo "no apk found"
 
       - name: Upload APK artifact
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: dist/*.apk
           retention-days: 7
+          if-no-files-found: ignore
