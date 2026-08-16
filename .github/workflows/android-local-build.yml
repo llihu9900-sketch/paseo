@@ -53,7 +53,7 @@ jobs:
         working-directory: packages/app
         run: |
           set -euo pipefail
-          npx expo prebuild --platform android --no-install --non-interactive
+          CI=1 npx expo prebuild --platform android --no-install --non-interactive
 
       - name: Gradle assembleRelease
         working-directory: packages/app/android
@@ -61,14 +61,24 @@ jobs:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          set -euo pipefail
+          set -o pipefail
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
-            --no-daemon --stacktrace
+            --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
+        continue-on-error: true
+
+      - name: Upload gradle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-build-log
+          path: /tmp/gradle-build.log
+          retention-days: 3
 
       - name: Collect APK
         shell: bash
+        if: success()
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -76,6 +86,7 @@ jobs:
           ls -la dist/
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
