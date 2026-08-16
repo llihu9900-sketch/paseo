@@ -606,6 +606,18 @@ export function mapACPUsage(usage: Usage | null | undefined): AgentUsage | undef
   };
 }
 
+/**
+ * Adds a provider-reported token delta to a running total. Accepts only
+ * finite non-negative numbers; an invalid or missing delta leaves the total
+ * unchanged so a single malformed frame cannot poison the accumulator.
+ */
+function addFiniteTokenCount(base: number | undefined, delta: unknown): number | undefined {
+  if (typeof delta !== "number" || !Number.isFinite(delta) || delta < 0) {
+    return base;
+  }
+  return (base ?? 0) + delta;
+}
+
 export function resolveACPModeSelection({
   modeId,
   availableModes,
@@ -1455,6 +1467,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private initialCommandsWaitTimeoutMs: number;
   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
   private currentTurnUsage: AgentUsage | undefined;
+  /** Token counts accumulated from provider `_meta.usage` transcript chunks within the active turn. */
+  private currentTurnTranscriptUsage: AgentUsage | undefined;
   private currentTurnTokensPerSecond: number | undefined;
   private activeForegroundTurnId: string | null = null;
   private fallbackAssistantMessageId: string | null = null;
@@ -1627,6 +1641,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.fallbackAssistantMessageId = null;
     this.submittedUserMessageTurnId = null;
     this.currentTurnUsage = undefined;
+    this.currentTurnTranscriptUsage = undefined;
     this.currentTurnTokensPerSecond = undefined;
     this.emitBootstrapThreadEvent();
     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
@@ -2897,22 +2912,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   }
 
   /**
-   * Extract per-turn output tokens and decode wall time from a provider's
+   * Extract per-turn token usage and decode throughput from a provider's
    * `_meta` extension on `agent_message_chunk`. qwen-code >= 0.21.8 attaches
-   * `_meta.usage.outputTokens` (candidatesTokenCount) and `_meta.durationMs`
-   * (model round decode time) to an empty-text message chunk. Other providers
-   * that do not emit this shape are silently ignored.
+   * `_meta.usage` (per-request input/output/cached tokens) and
+   * `_meta.durationMs` (model round decode time) to an empty-text message
+   * chunk after each model round. Other providers that do not emit this
+   * shape are silently ignored.
    *
-   * The values are provider-reported and unvalidated at the protocol layer, so
-   * every numeric read is guarded: NaN/Infinity/negative/zero decode time are
-   * rejected to avoid poisoning the footer with a bogus rate.
+   * A turn can span multiple model rounds, so token counts accumulate across
+   * chunks within the turn. They feed `turn_completed.usage` when the
+   * standard `prompt_response.usage` frame is absent (qwen-code reports
+   * per-round usage only through this extension). Values are
+   * provider-reported and unvalidated at the protocol layer, so every
+   * numeric read is guarded: NaN/Infinity/negative values and a zero decode
+   * time are rejected to avoid poisoning the usage with bogus numbers.
    */
   private captureTranscriptUsage(update: { _meta?: { [key: string]: unknown } | null }): void {
     const meta = update._meta as
-      | { usage?: { outputTokens?: number }; durationMs?: number }
+      | {
+          usage?: {
+            inputTokens?: number;
+            outputTokens?: number;
+            cachedReadTokens?: number;
+          };
+          durationMs?: number;
+        }
       | null
       | undefined;
-    const outputTokens = meta?.usage?.outputTokens;
+    const usage = meta?.usage;
+    const outputTokens = usage?.outputTokens;
     const durationMs = meta?.durationMs;
     if (
       typeof outputTokens === "number" &&
@@ -2924,22 +2952,67 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     ) {
       this.currentTurnTokensPerSecond = outputTokens / (durationMs / 1000);
     }
+
+    // Only accumulate token counts while a foreground turn is active; history
+    // replay chunks arriving outside a turn must not pollute the next turn.
+    if (this.activeForegroundTurnId !== null) {
+      this.accumulateTranscriptTokens(usage);
+    }
+  }
+
+  private accumulateTranscriptTokens(
+    usage:
+      | { inputTokens?: number; outputTokens?: number; cachedReadTokens?: number }
+      | null
+      | undefined,
+  ): void {
+    const nextInput = addFiniteTokenCount(
+      this.currentTurnTranscriptUsage?.inputTokens,
+      usage?.inputTokens,
+    );
+    const nextOutput = addFiniteTokenCount(
+      this.currentTurnTranscriptUsage?.outputTokens,
+      usage?.outputTokens,
+    );
+    const nextCached = addFiniteTokenCount(
+      this.currentTurnTranscriptUsage?.cachedInputTokens,
+      usage?.cachedReadTokens,
+    );
+    if (nextInput === undefined && nextOutput === undefined && nextCached === undefined) {
+      return;
+    }
+    this.currentTurnTranscriptUsage ??= {};
+    if (nextInput !== undefined) {
+      this.currentTurnTranscriptUsage.inputTokens = nextInput;
+    }
+    if (nextOutput !== undefined) {
+      this.currentTurnTranscriptUsage.outputTokens = nextOutput;
+    }
+    if (nextCached !== undefined) {
+      this.currentTurnTranscriptUsage.cachedInputTokens = nextCached;
+    }
   }
 
   /**
    * Build the usage carried on turn_completed, folding in the decode
    * throughput captured from the provider's `_meta` transcript if present.
-   * Returns undefined when neither the ACP prompt usage nor the transcript
-   * throughput produced a value.
+   * Fields from the standard `prompt_response.usage` frame win over
+   * transcript-derived fields; transcript fields fill what the standard
+   * frame did not report. Returns undefined when neither the ACP prompt
+   * usage nor the transcript throughput produced a value.
    */
   private resolveTurnCompletionUsage(): AgentUsage | undefined {
-    if (this.currentTurnTokensPerSecond === undefined) {
-      return this.currentTurnUsage;
+    const usage: AgentUsage = {};
+    if (this.currentTurnTranscriptUsage) {
+      Object.assign(usage, this.currentTurnTranscriptUsage);
     }
-    return {
-      ...(this.currentTurnUsage ?? {}),
-      tokensPerSecond: this.currentTurnTokensPerSecond,
-    };
+    if (this.currentTurnUsage) {
+      Object.assign(usage, this.currentTurnUsage);
+    }
+    if (this.currentTurnTokensPerSecond !== undefined) {
+      usage.tokensPerSecond = this.currentTurnTokensPerSecond;
+    }
+    return Object.keys(usage).length > 0 ? usage : undefined;
   }
 
   private handlePromptResponse(response: PromptResponse, turnId: string): void {

@@ -2780,6 +2780,210 @@ describe("ACPAgentSession", () => {
     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
   });
 
+  test("accumulates qwen-code _meta.usage chunks into turn_completed.usage", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+
+    session.subscribe((event) => {
+      events.push(event);
+    });
+
+    const { turnId } = await session.startTurn("hello");
+
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-1",
+        content: { type: "text", text: "" },
+        _meta: { usage: { inputTokens: 100, outputTokens: 40 }, durationMs: 2000 },
+      } as SessionUpdate,
+    });
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-2",
+        content: { type: "text", text: "" },
+        _meta: {
+          usage: { inputTokens: 50, outputTokens: 25, cachedReadTokens: 10 },
+          durationMs: 1000,
+        },
+      } as SessionUpdate,
+    });
+
+    resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: {
+        inputTokens: 150,
+        outputTokens: 65,
+        cachedInputTokens: 10,
+        tokensPerSecond: 25,
+      },
+    });
+  });
+
+  test("prefers standard prompt_response.usage fields over transcript-derived ones", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+
+    session.subscribe((event) => {
+      events.push(event);
+    });
+
+    const { turnId } = await session.startTurn("hello");
+
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-1",
+        content: { type: "text", text: "" },
+        _meta: { usage: { inputTokens: 100, outputTokens: 40 }, durationMs: 2000 },
+      } as SessionUpdate,
+    });
+
+    resolvePrompt({
+      stopReason: "end_turn",
+      usage: { inputTokens: 300, outputTokens: 120 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: {
+        inputTokens: 300,
+        outputTokens: 120,
+        tokensPerSecond: 20,
+      },
+    });
+  });
+
+  test("ignores malformed transcript token values", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+
+    session.subscribe((event) => {
+      events.push(event);
+    });
+
+    const { turnId } = await session.startTurn("hello");
+
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-1",
+        content: { type: "text", text: "" },
+        _meta: {
+          usage: { inputTokens: Number.NaN, outputTokens: -5, cachedReadTokens: Infinity },
+          durationMs: 2000,
+        },
+      } as SessionUpdate,
+    });
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-2",
+        content: { type: "text", text: "" },
+        _meta: { usage: { inputTokens: 20, outputTokens: 8 }, durationMs: 1000 },
+      } as SessionUpdate,
+    });
+
+    resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: {
+        inputTokens: 20,
+        outputTokens: 8,
+        tokensPerSecond: 8,
+      },
+    });
+  });
+
+  test("does not accumulate transcript usage outside an active turn", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+
+    session.subscribe((event) => {
+      events.push(event);
+    });
+
+    // History replay chunk arriving with no active turn must be ignored.
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "replay-1",
+        content: { type: "text", text: "Replayed assistant text" },
+        _meta: { usage: { inputTokens: 999, outputTokens: 999 }, durationMs: 1000 },
+      } as SessionUpdate,
+    });
+
+    const { turnId } = await session.startTurn("hello");
+    resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: undefined,
+    });
+  });
+
   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
     const session = createSession();
     const events: AgentStreamEvent[] = [];
