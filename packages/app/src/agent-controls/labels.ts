@@ -9,7 +9,20 @@ function sentenceCase(value: string): string {
   if (!value) {
     return value;
   }
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  // Sentence-case each word, but keep ALL-CAPS acronyms intact: a provider
+  // label like "PTC 模式" must not degrade into "Ptc 模式".
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, index) => {
+      if (word.length >= 2 && /[A-Z]/.test(word) && word === word.toUpperCase()) {
+        return word;
+      }
+      return index === 0
+        ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        : word.toLowerCase();
+    })
+    .join(" ");
 }
 
 function splitCompactLabel(value: string, splitHyphen: boolean): string {

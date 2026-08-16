@@ -13,6 +13,12 @@ describe("formatAgentModeLabel", () => {
   it("splits compact mode ids when no provider label is available", () => {
     expect(formatAgentModeLabel({ id: "auto-review" })).toBe("Auto review");
   });
+
+  it("keeps ALL-CAPS acronyms intact in provider labels", () => {
+    expect(formatAgentModeLabel({ id: "code", label: "PTC 模式" })).toBe("PTC 模式");
+    expect(formatAgentModeLabel({ id: "code", label: "SDK Tools" })).toBe("SDK tools");
+    expect(formatAgentModeLabel({ id: "plan", label: "AI Planning" })).toBe("AI planning");
+  });
 });
 
 describe("formatThinkingOptionLabel", () => {
