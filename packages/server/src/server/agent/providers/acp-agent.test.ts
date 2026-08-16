@@ -2826,14 +2826,100 @@ describe("ACPAgentSession", () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    // chunk1: input=100 cached=0 → uncached=100
+    // chunk2: input=50 cached=10 → uncached=40
+    // 累计 input=140（净输入，历史缓存部分不重复计数）、cached=10
     expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
       type: "turn_completed",
       turnId,
       usage: {
-        inputTokens: 150,
+        inputTokens: 140,
         outputTokens: 65,
         cachedInputTokens: 10,
         tokensPerSecond: 25,
+      },
+    });
+  });
+
+  test("clamps transcript input when cachedRead exceeds input", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+    session.subscribe((event) => events.push(event));
+
+    const { turnId } = await session.startTurn("hello");
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-1",
+        content: { type: "text", text: "" },
+        _meta: { usage: { inputTokens: 50, outputTokens: 10, cachedReadTokens: 80 } },
+      } as SessionUpdate,
+    });
+
+    resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // cached(80) > input(50)：uncached clamp 到 0，cached 仍按 80 累计
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 10,
+        cachedInputTokens: 80,
+      },
+    });
+  });
+
+  test("treats transcript input as uncached when cachedRead is absent", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+    session.subscribe((event) => events.push(event));
+
+    const { turnId } = await session.startTurn("hello");
+    await session.sessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "msg-1",
+        content: { type: "text", text: "" },
+        _meta: { usage: { inputTokens: 120, outputTokens: 30 } },
+      } as SessionUpdate,
+    });
+
+    resolvePrompt({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 无 cachedReadTokens → inputTokens 原样累计（退化行为）
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      turnId,
+      usage: {
+        inputTokens: 120,
+        outputTokens: 30,
       },
     });
   });
@@ -2883,6 +2969,83 @@ describe("ACPAgentSession", () => {
         outputTokens: 120,
         tokensPerSecond: 20,
       },
+    });
+  });
+
+  test("diffs standard prompt_response.usage across turns into per-turn deltas", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+    session.subscribe((event) => events.push(event));
+
+    // Turn 1: cumulative input=100 output=40（首轮无基准，delta=全量）
+    const { turnId: turn1 } = await session.startTurn("one");
+    resolvePrompt({ stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 40 } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Turn 2: cumulative input=150 output=65（delta=50/25）
+    const { turnId: turn2 } = await session.startTurn("two");
+    resolvePrompt({ stopReason: "end_turn", usage: { inputTokens: 150, outputTokens: 65 } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const completions = events.filter((event) => event.type === "turn_completed");
+    expect(completions.find((event) => event.turnId === turn1)).toMatchObject({
+      usage: { inputTokens: 100, outputTokens: 40 },
+    });
+    expect(completions.find((event) => event.turnId === turn2)).toMatchObject({
+      usage: { inputTokens: 50, outputTokens: 25 },
+    });
+  });
+
+  test("ignores malformed standard usage fields and keeps the prior baseline", async () => {
+    const session = createSession();
+    const events: AgentStreamEvent[] = [];
+    let resolvePrompt!: (value: PromptResponse) => void;
+    const prompt = vi.fn(
+      () =>
+        new Promise<PromptResponse>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+    session.subscribe((event) => events.push(event));
+
+    // Turn 1: input=100
+    const { turnId: turn1 } = await session.startTurn("one");
+    resolvePrompt({ stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 40 } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Turn 2: input 字段是 NaN（坏帧），output=65 → input 应跳过并保留基线，
+    // 所以 delta 里 input 不出现，output delta=25
+    const { turnId: turn2 } = await session.startTurn("two");
+    resolvePrompt({
+      stopReason: "end_turn",
+      usage: { inputTokens: Number.NaN, outputTokens: 65 },
+    } as PromptResponse);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const completions = events.filter((event) => event.type === "turn_completed");
+    expect(completions.find((event) => event.turnId === turn2)).toMatchObject({
+      usage: { outputTokens: 25 },
     });
   });
 

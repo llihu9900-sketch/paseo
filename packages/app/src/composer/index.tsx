@@ -254,6 +254,7 @@ function selectUsageFields(
   totalCostUsd: number | null;
   sessionInputTokens: number | null;
   sessionOutputTokens: number | null;
+  sessionCachedInputTokens: number | null;
 } {
   return {
     contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
@@ -261,6 +262,7 @@ function selectUsageFields(
     totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
     sessionInputTokens: agent?.sessionUsage?.inputTokens ?? null,
     sessionOutputTokens: agent?.sessionUsage?.outputTokens ?? null,
+    sessionCachedInputTokens: agent?.sessionUsage?.cachedInputTokens ?? null,
   };
 }
 
@@ -282,6 +284,7 @@ function renderContextWindowMeter(
   totalCostUsd: number | null,
   sessionInputTokens: number | null,
   sessionOutputTokens: number | null,
+  sessionCachedInputTokens: number | null,
   showPercentage: boolean,
   serverId: string,
   provider: string | null,
@@ -289,7 +292,11 @@ function renderContextWindowMeter(
   glyphSize: number,
 ): ReactElement | null {
   const hasData = contextWindowMaxTokens !== null && contextWindowUsedTokens !== null;
-  const hasSessionTokens = hasSessionTokenData(sessionInputTokens, sessionOutputTokens);
+  const hasSessionTokens = hasSessionTokenData(
+    sessionInputTokens,
+    sessionOutputTokens,
+    sessionCachedInputTokens,
+  );
   if (!hasData && !hasSessionTokens && !pending) {
     return null;
   }
@@ -300,6 +307,7 @@ function renderContextWindowMeter(
       totalCostUsd={totalCostUsd}
       sessionInputTokens={sessionInputTokens}
       sessionOutputTokens={sessionOutputTokens}
+      sessionCachedInputTokens={sessionCachedInputTokens}
       showPercentage={showPercentage}
       serverId={serverId}
       provider={provider}
@@ -1910,6 +1918,7 @@ export function Composer({
         agentState.totalCostUsd,
         agentState.sessionInputTokens,
         agentState.sessionOutputTokens,
+        agentState.sessionCachedInputTokens,
         false,
         serverId,
         agentState.provider,
@@ -1922,6 +1931,7 @@ export function Composer({
       agentState.totalCostUsd,
       agentState.sessionInputTokens,
       agentState.sessionOutputTokens,
+      agentState.sessionCachedInputTokens,
       serverId,
       agentState.provider,
       contextWindowPending,

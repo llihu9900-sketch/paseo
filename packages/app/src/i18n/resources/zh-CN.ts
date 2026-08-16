@@ -1694,6 +1694,7 @@ export const zhCN: TranslationResources = {
     sessionCost: "会话费用 {{cost}}",
     sessionInputTokens: "会话输入 {{tokens}} tokens",
     sessionOutputTokens: "会话输出 {{tokens}} tokens",
+    sessionCacheHit: "缓存命中 {{tokens}} tokens（{{percent}}%）",
     accessibility: "上下文窗口已使用 {{percentage}}%",
     sessionUsageAccessibility: "会话输入与输出 token 用量",
   },

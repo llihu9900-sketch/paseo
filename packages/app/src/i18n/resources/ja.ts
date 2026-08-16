@@ -1730,6 +1730,7 @@ export const ja: TranslationResources = {
     sessionCost: "セッションコスト: {{cost}}",
     sessionInputTokens: "セッション入力 {{tokens}}トークン",
     sessionOutputTokens: "セッション出力 {{tokens}}トークン",
+    sessionCacheHit: "キャッシュヒット {{tokens}} トークン（{{percent}}%）",
     accessibility: "コンテキストウィンドウ{{percentage}}%使用",
     sessionUsageAccessibility: "セッションの入出力トークン使用量",
   },

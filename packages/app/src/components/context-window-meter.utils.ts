@@ -20,6 +20,11 @@ export function isFiniteTokenValue(value: number | null | undefined): value is n
 export function hasSessionTokenData(
   sessionInputTokens: number | null | undefined,
   sessionOutputTokens: number | null | undefined,
+  sessionCachedInputTokens?: number | null | undefined,
 ): boolean {
-  return isFiniteTokenValue(sessionInputTokens) || isFiniteTokenValue(sessionOutputTokens);
+  return (
+    isFiniteTokenValue(sessionInputTokens) ||
+    isFiniteTokenValue(sessionOutputTokens) ||
+    isFiniteTokenValue(sessionCachedInputTokens)
+  );
 }

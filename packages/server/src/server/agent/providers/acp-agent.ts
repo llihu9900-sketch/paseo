@@ -1467,6 +1467,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
   private initialCommandsWaitTimeoutMs: number;
   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
   private currentTurnUsage: AgentUsage | undefined;
+  /**
+   * Last-observed standard `prompt_response.usage` cumulative values.
+   * ACP 协议里 `Usage.inputTokens/outputTokens/cachedReadTokens` 是「累计会话
+   * 值」（across all turns），不是单轮增量。sessionUsage 的累加器期望「单轮
+   * 增量」，所以每个 turn 结束时把当前累计值差分（减去上一轮累计）后再存入
+   * currentTurnUsage。跨 turn 保留，绝不在 startTurn 重置。
+   */
+  private lastStandardUsage: AgentUsage | undefined;
   /** Token counts accumulated from provider `_meta.usage` transcript chunks within the active turn. */
   private currentTurnTranscriptUsage: AgentUsage | undefined;
   private currentTurnTokensPerSecond: number | undefined;
@@ -2966,9 +2974,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
       | null
       | undefined,
   ): void {
+    // qwen-code 的 `_meta.usage.inputTokens` 是「全量 prompt」（含缓存命中），
+    // 而 `cachedReadTokens` 是其中被缓存的历史部分。若直接把全量 prompt 累加，
+    // 历史前缀会在每一轮重复计数，sessionUsage.inputTokens 会指数级虚高。
+    // 对齐 deepseek-harness 的三桶模型：净输入 = max(0, 全量 - 缓存命中)。
+    // 无 cachedReadTokens 的 provider 退化为原行为（缓存视为 0，全量即净输入）。
+    const rawInput = usage?.inputTokens;
+    const rawCached = usage?.cachedReadTokens;
+    let uncachedInput: number | undefined;
+    if (typeof rawInput === "number" && Number.isFinite(rawInput) && rawInput >= 0) {
+      const cache =
+        typeof rawCached === "number" && Number.isFinite(rawCached) && rawCached >= 0
+          ? rawCached
+          : 0;
+      uncachedInput = Math.max(0, rawInput - cache);
+    }
     const nextInput = addFiniteTokenCount(
       this.currentTurnTranscriptUsage?.inputTokens,
-      usage?.inputTokens,
+      uncachedInput,
     );
     const nextOutput = addFiniteTokenCount(
       this.currentTurnTranscriptUsage?.outputTokens,
@@ -2976,7 +2999,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     );
     const nextCached = addFiniteTokenCount(
       this.currentTurnTranscriptUsage?.cachedInputTokens,
-      usage?.cachedReadTokens,
+      rawCached,
     );
     if (nextInput === undefined && nextOutput === undefined && nextCached === undefined) {
       return;
@@ -3015,8 +3038,72 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     return Object.keys(usage).length > 0 ? usage : undefined;
   }
 
+  /**
+   * 把标准 ACP `prompt_response.usage` 的「累计会话值」转成「本轮增量」。
+   *
+   * ACP 协议的 `Usage` 字段语义是累计值（`inputTokens`/`outputTokens` 是
+   * "Total ... across all turns"），而 transcript `_meta.usage`（qwen-code）
+   * 是单轮值。两者都要 fold 进 turn_completed.usage 供 sessionUsage 累加，
+   * 所以标准值必须先差分，否则每轮累加累计值会指数级虚高。
+   *
+   * 语义：
+   *   - 第一个 turn：previous 为 undefined，delta = 当前累计（= 本轮增量）。
+   *   - 后续 turn：delta = max(0, 当前累计 - 上一轮累计)。
+   *   - 非法值（NaN/Infinity/负数）跳过且不推进该字段的基准，避免一次坏
+   *     帧污染后续所有轮次。
+   *   - 推进基准是「按字段合并」而非整体覆盖：一个字段本次没报（undefined）
+   *     不会把上一轮的有效基准清掉。
+   */
+  private diffStandardUsage(current: AgentUsage | undefined): AgentUsage | undefined {
+    if (!current) {
+      return undefined;
+    }
+    const previous = this.lastStandardUsage;
+    const delta: AgentUsage = {};
+    let hasField = false;
+
+    const diffField = (
+      field: "inputTokens" | "outputTokens" | "cachedInputTokens",
+    ): void => {
+      const value = current[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        return;
+      }
+      const previousValue = previous?.[field];
+      const base =
+        typeof previousValue === "number" &&
+        Number.isFinite(previousValue) &&
+        previousValue >= 0
+          ? previousValue
+          : 0;
+      delta[field] = Math.max(0, value - base);
+      hasField = true;
+    };
+
+    diffField("inputTokens");
+    diffField("outputTokens");
+    diffField("cachedInputTokens");
+
+    // 推进基准：只把本次报出的有效字段合并进上一轮基准，保留未报字段。
+    const merged: AgentUsage = { ...(previous ?? {}) };
+    for (const field of ["inputTokens", "outputTokens", "cachedInputTokens"] as const) {
+      const value = current[field];
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+        merged[field] = value;
+      }
+    }
+    this.lastStandardUsage = merged;
+
+    return hasField ? delta : undefined;
+  }
+
   private handlePromptResponse(response: PromptResponse, turnId: string): void {
-    this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
+    // mapACPUsage 返回的是累计会话值，差分成单轮增量后再存入 currentTurnUsage，
+    // 这样 resolveTurnCompletionUsage 合并出的 usage 字段全是单轮值，sessionUsage
+    // 累加器不会 double count。qwen-code 的 prompt_response.usage 为 null，走
+    // transcript 路径，这里不生效。
+    this.currentTurnUsage =
+      this.diffStandardUsage(mapACPUsage(response.usage)) ?? this.currentTurnUsage;
 
     switch (response.stopReason) {
       case "cancelled":

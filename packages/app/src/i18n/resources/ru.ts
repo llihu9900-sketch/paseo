@@ -1748,6 +1748,7 @@ export const ru: TranslationResources = {
     sessionCost: "Стоимость сеанса{{cost}}",
     sessionInputTokens: "Ввод сеанса {{tokens}} токенов",
     sessionOutputTokens: "Вывод сеанса {{tokens}} токенов",
+    sessionCacheHit: "Попадание в кэш {{tokens}} токенов ({{percent}}%)",
     accessibility: "Контекстное окно{{percentage}}% использовано",
     sessionUsageAccessibility: "Использование входных и выходных токенов сеанса",
   },

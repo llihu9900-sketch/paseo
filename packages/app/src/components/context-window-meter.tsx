@@ -21,6 +21,8 @@ interface ContextWindowMeterProps {
   sessionInputTokens?: number | null;
   /** Cumulative session output tokens; the row is hidden when absent. */
   sessionOutputTokens?: number | null;
+  /** Cumulative cache-read (prompt-cache hit) tokens; the row is hidden when absent. */
+  sessionCachedInputTokens?: number | null;
   showPercentage?: boolean;
   serverId?: string;
   /** The Paseo provider key, e.g. "claude", "gemini", "codex" */
@@ -108,12 +110,19 @@ function getMeterGeometry(showPercentage: boolean, glyphSize?: number) {
 function SessionTokenRows({
   sessionInputTokens,
   sessionOutputTokens,
+  sessionCachedInputTokens,
   t,
 }: {
   sessionInputTokens: number | null | undefined;
   sessionOutputTokens: number | null | undefined;
+  sessionCachedInputTokens: number | null | undefined;
   t: TFunction;
 }) {
+  const uncached = isFiniteTokenValue(sessionInputTokens) ? sessionInputTokens : 0;
+  const cached = isFiniteTokenValue(sessionCachedInputTokens) ? sessionCachedInputTokens : 0;
+  const billedInput = uncached + cached;
+  const cacheHitPercent =
+    billedInput > 0 && cached > 0 ? Math.round((cached / billedInput) * 100) : null;
   return (
     <>
       {isFiniteTokenValue(sessionInputTokens) ? (
@@ -130,6 +139,14 @@ function SessionTokenRows({
           })}
         </Text>
       ) : null}
+      {isFiniteTokenValue(sessionCachedInputTokens) ? (
+        <Text style={styles.tooltipDetail}>
+          {t("contextWindow.sessionCacheHit", {
+            tokens: formatTokenCount(sessionCachedInputTokens),
+            percent: cacheHitPercent ?? 0,
+          })}
+        </Text>
+      ) : null}
     </>
   );
 }
@@ -140,6 +157,7 @@ export function ContextWindowMeter({
   totalCostUsd,
   sessionInputTokens,
   sessionOutputTokens,
+  sessionCachedInputTokens,
   showPercentage = false,
   serverId,
   provider,
@@ -169,7 +187,11 @@ export function ContextWindowMeter({
   const { svgSize, center, radius, strokeWidth, circumference, containerStyle } = geometry;
 
   const hasContextWindow = percentage !== null && maxTokens !== null && usedTokens !== null;
-  const hasSessionTokens = hasSessionTokenData(sessionInputTokens, sessionOutputTokens);
+  const hasSessionTokens = hasSessionTokenData(
+    sessionInputTokens,
+    sessionOutputTokens,
+    sessionCachedInputTokens,
+  );
 
   // Render nothing when neither context window usage nor session totals are
   // available and no session is pending yet. Session totals and context
@@ -264,6 +286,7 @@ export function ContextWindowMeter({
           <SessionTokenRows
             sessionInputTokens={sessionInputTokens}
             sessionOutputTokens={sessionOutputTokens}
+            sessionCachedInputTokens={sessionCachedInputTokens}
             t={t}
           />
           <ProviderUsageTooltipSection view={providerUsageView} activeProviderId={provider} />

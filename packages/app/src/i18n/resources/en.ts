@@ -1724,6 +1724,7 @@ export const en = {
     sessionCost: "Session cost {{cost}}",
     sessionInputTokens: "Session input {{tokens}} tokens",
     sessionOutputTokens: "Session output {{tokens}} tokens",
+    sessionCacheHit: "Cache hit {{tokens}} tokens ({{percent}}%)",
     accessibility: "Context window {{percentage}}% used",
     sessionUsageAccessibility: "Session input and output token usage",
   },

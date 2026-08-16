@@ -529,7 +529,15 @@ function accumulateSessionUsage(
 ): AgentUsage | undefined {
   const inputTokens = addFiniteTokenCount(current?.inputTokens, turnUsage.inputTokens);
   const outputTokens = addFiniteTokenCount(current?.outputTokens, turnUsage.outputTokens);
-  if (inputTokens === undefined && outputTokens === undefined) {
+  const cachedInputTokens = addFiniteTokenCount(
+    current?.cachedInputTokens,
+    turnUsage.cachedInputTokens,
+  );
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    cachedInputTokens === undefined
+  ) {
     return current;
   }
   const next: AgentUsage = { ...current };
@@ -538,6 +546,9 @@ function accumulateSessionUsage(
   }
   if (outputTokens !== undefined) {
     next.outputTokens = outputTokens;
+  }
+  if (cachedInputTokens !== undefined) {
+    next.cachedInputTokens = cachedInputTokens;
   }
   return next;
 }
