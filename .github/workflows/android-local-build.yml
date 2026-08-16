@@ -38,6 +38,11 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+
       - name: Install JS dependencies
         run: node scripts/npm-retry.mjs ci
 
@@ -52,12 +57,15 @@ jobs:
 
       - name: Gradle assembleRelease
         working-directory: packages/app/android
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           set -euo pipefail
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
-            --no-daemon
+            --no-daemon --stacktrace
 
       - name: Collect APK
         shell: bash
