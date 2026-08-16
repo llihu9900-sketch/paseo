@@ -177,6 +177,7 @@ import {
 } from "@/panels/panel-instance-attributes";
 import { findAdjacentPane } from "@/utils/split-navigation";
 import { useIsCompactFormFactor, supportsDesktopPaneSplits } from "@/constants/layout";
+import { WORKSPACE_DECK_MAX_MOUNTED_TABS_DESKTOP } from "@/screens/workspace/workspace-deck-retention";
 import { getIsElectron, isNative, isWeb } from "@/constants/platform";
 import type { SurfaceBackdrop } from "@/styles/surface-backdrop";
 import { useContainerWidthBelow } from "@/hooks/use-container-width";
@@ -3367,7 +3368,7 @@ function WorkspaceScreenContent({
     activeTabId,
     allTabIds: focusedPaneTabIds,
     retainedTabIds: modifiedFocusedPaneTabIds,
-    cap: 3,
+    cap: isWeb ? WORKSPACE_DECK_MAX_MOUNTED_TABS_DESKTOP : 3,
   });
   const mountedFocusedPaneTabIds = useMemo(
     () => focusedPaneTabIds.filter((tabId) => mountedFocusedPaneTabIdsSet.has(tabId)),

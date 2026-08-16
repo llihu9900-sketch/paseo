@@ -2,6 +2,16 @@ import type { ActiveWorkspaceSelection } from "@/stores/navigation-active-worksp
 
 export const WORKSPACE_DECK_MAX_MOUNTED_WORKSPACES = 3;
 
+/**
+ * Desktop (Electron/web) can afford to keep more workspace tabs mounted than
+ * mobile. Each retained agent tab keeps its virtualized stream window in the
+ * DOM (hidden via display:none), so the cost is a bounded ~50-node window per
+ * tab, not the whole timeline. Raising this avoids the expensive
+ * unmount/remount of a busy agent's AgentStreamView when switching between
+ * tabs — the primary cause of tab-switch jank on desktop.
+ */
+export const WORKSPACE_DECK_MAX_MOUNTED_TABS_DESKTOP = 10;
+
 interface PruneMountedWorkspaceSelectionsInput {
   currentSelections: ActiveWorkspaceSelection[];
   activeSelection: ActiveWorkspaceSelection | null;
