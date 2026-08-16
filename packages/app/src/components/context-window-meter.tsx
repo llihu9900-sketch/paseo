@@ -118,11 +118,6 @@ function SessionTokenRows({
   sessionCachedInputTokens: number | null | undefined;
   t: TFunction;
 }) {
-  const uncached = isFiniteTokenValue(sessionInputTokens) ? sessionInputTokens : 0;
-  const cached = isFiniteTokenValue(sessionCachedInputTokens) ? sessionCachedInputTokens : 0;
-  const billedInput = uncached + cached;
-  const cacheHitPercent =
-    billedInput > 0 && cached > 0 ? Math.round((cached / billedInput) * 100) : null;
   return (
     <>
       {isFiniteTokenValue(sessionInputTokens) ? (
@@ -143,7 +138,6 @@ function SessionTokenRows({
         <Text style={styles.tooltipDetail}>
           {t("contextWindow.sessionCacheHit", {
             tokens: formatTokenCount(sessionCachedInputTokens),
-            percent: cacheHitPercent ?? 0,
           })}
         </Text>
       ) : null}

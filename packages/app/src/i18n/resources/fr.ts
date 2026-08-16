@@ -1761,7 +1761,7 @@ export const fr: TranslationResources = {
     sessionCost: "Coût de la séance{{cost}}",
     sessionInputTokens: "Entrée de session {{tokens}} jetons",
     sessionOutputTokens: "Sortie de session {{tokens}} jetons",
-    sessionCacheHit: "Cache hit {{tokens}} tokens ({{percent}}%)",
+    sessionCacheHit: "Cache hit {{tokens}} tokens",
     accessibility: "Fenêtre contextuelle{{percentage}}% utilisé",
     sessionUsageAccessibility: "Utilisation des jetons d'entrée et de sortie de la session",
   },

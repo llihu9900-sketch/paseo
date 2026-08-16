@@ -1724,7 +1724,7 @@ export const ko: TranslationResources = {
     sessionCost: "세션 비용 {{cost}}",
     sessionInputTokens: "세션 입력 {{tokens}} 토큰",
     sessionOutputTokens: "세션 출력 {{tokens}} 토큰",
-    sessionCacheHit: "캐시 히트 {{tokens}} 토큰 ({{percent}}%)",
+    sessionCacheHit: "캐시 히트 {{tokens}} 토큰",
     accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
     sessionUsageAccessibility: "세션 입력 및 출력 토큰 사용량",
   },

@@ -1714,7 +1714,7 @@ export const ar: TranslationResources = {
     sessionCost: "تكلفة الجلسة{{cost}}",
     sessionInputTokens: "إدخال الجلسة {{tokens}} رمز",
     sessionOutputTokens: "إخراج الجلسة {{tokens}} رمز",
-    sessionCacheHit: "إصابة ذاكرة التخزين المؤقت {{tokens}} رمز ({{percent}}%)",
+    sessionCacheHit: "إصابة ذاكرة التخزين المؤقت {{tokens}} رمز",
     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
     sessionUsageAccessibility: "استخدام رموز الإدخال والإخراج للجلسة",
   },

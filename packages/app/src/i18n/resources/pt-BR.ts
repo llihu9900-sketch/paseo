@@ -1743,7 +1743,7 @@ export const ptBR: TranslationResources = {
     sessionCost: "Custo da sessão {{cost}}",
     sessionInputTokens: "Entrada da sessão {{tokens}} tokens",
     sessionOutputTokens: "Saída da sessão {{tokens}} tokens",
-    sessionCacheHit: "Cache hit {{tokens}} tokens ({{percent}}%)",
+    sessionCacheHit: "Cache hit {{tokens}} tokens",
     accessibility: "Janela de contexto {{percentage}}% usada",
     sessionUsageAccessibility: "Uso de tokens de entrada e saída da sessão",
   },
