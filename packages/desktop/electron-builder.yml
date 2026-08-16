@@ -35,7 +35,7 @@ extraResources:
     to: editor-target-icons
 publish:
   provider: github
-  owner: getpaseo
+  owner: llihu9900-sketch
   repo: paseo
 mac:
   artifactName: "Paseo-${version}-${arch}.${ext}"
